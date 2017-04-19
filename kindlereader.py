@@ -14,23 +14,20 @@ import time
 import hashlib
 import re
 import uuid
-import string
 import logging
 from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email.utils import parsedate_tz
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 import codecs
-import ConfigParser
-import getpass
+import configparser
 import subprocess
-import Queue, threading
-import socket, urllib2, urllib
-from lib import smtplib
+import queue, threading
+import socket, urllib.request, urllib.error, urllib.parse, urllib.request, urllib.parse, urllib.error
+import smtplib
 from lib.tornado import escape
 from lib.tornado import template
-from lib.BeautifulSoup import BeautifulSoup
+from bs4 import BeautifulSoup
 from lib.kindlestrip import SectionStripper
 from lib import feedparser
 try:
@@ -43,8 +40,8 @@ isosx = 'darwin' in sys.platform.lower()
 isfreebsd = 'freebsd' in sys.platform.lower()
 islinux = not(iswindows or isosx or isfreebsd)
 socket.setdefaulttimeout(20)
-imgq = Queue.Queue(0)
-feedq = Queue.Queue(0)
+imgq = queue.Queue(0)
+feedq = queue.Queue(0)
 updated_feeds = []
 feedlock = threading.Lock()
 
@@ -292,7 +289,7 @@ TEMPLATES['content.opf'] = """<?xml version="1.0" encoding="utf-8"?>
 class KRConfig():
     '''提供封装好的配置'''
     def __init__(self, configfile = None):
-        config = ConfigParser.ConfigParser()
+        config = configparser.ConfigParser()
         
         try:
             config.readfp(codecs.open(configfile, "r", "utf-8-sig"))
@@ -509,20 +506,20 @@ class feedDownloader(threading.Thread):
                     return feed_data, force_full_text
                 else:
                     raise UserWarning("illegal feed:{}".format(feed))
-        except Exception, e:
+        except Exception as e:
             logging.error("fail:({}):{}".format(feed, e))
             return None, None
                         
     def parsefeed(self, feed, retires = 1):
         """parse feed using feedparser"""
         try:  # 访问feed，自动尝试在地址结尾加上或去掉'/'
-            feed_data = feedparser.parse(feed.encode('utf-8'))
-            if not feed_data.feed.has_key('title'):
+            feed_data = feedparser.parse(feed)
+            if 'title' not in feed_data.feed:
                 if feed[-1] == '/':
-                    feed_data = feedparser.parse(feed[0:-1].encode('utf-8'))
+                    feed_data = feedparser.parse(feed[0:-1])
                 elif feed[-1] != '/':
-                    feed_data = feedparser.parse((feed + '/').encode('utf-8'))
-                if not feed_data.feed.has_key('title'):
+                    feed_data = feedparser.parse((feed + '/'))
+                if 'title' not in feed_data.feed:
                     raise UserWarning("read error")
                 else:
                     return feed_data
@@ -531,7 +528,7 @@ class feedDownloader(threading.Thread):
         except UserWarning:
             logging.error("fail({}): {}".format(feed, "read error"))
             return None
-        except Exception, e:
+        except Exception as e:
             if retires > 0:
                 logging.error("error({}): {} , retry".format(feed, e))
                 return self.parsefeed(feed, retires - 1)  # 如果读取错误，重试一次
@@ -585,7 +582,7 @@ class feedDownloader(threading.Thread):
                     except:
                         local_entry['content'], images = self.parse_summary(entry.summary, entry.link)
 
-                local_entry['stripped'] = ''.join(BeautifulSoup(local_entry['content'], convertEntities = BeautifulSoup.HTML_ENTITIES).findAll(text = True))[:200]
+                local_entry['stripped'] = ''.join(BeautifulSoup(local_entry['content'], "html.parser").findAll(text = True))[:200]
                             
                 local['entries'].append(local_entry)
                 for i in images:
@@ -601,7 +598,7 @@ class feedDownloader(threading.Thread):
                 logging.info("from feed{} update {} items.".format(feed_idx, len(local['entries'])))
             else:
                 logging.info("feed{} has no update.".format(feed_idx))
-        except Exception, e:
+        except Exception as e:
             logging.error("fail(feed{}): {}".format(feed_idx, e))
 
     def parsetime(self, strdatetime):
@@ -618,7 +615,7 @@ class feedDownloader(threading.Thread):
                 return (t + krconfig.timezone)
             else:
                 return (datetime.utcnow() + krconfig.timezone)
-        except Exception, e:
+        except Exception as e:
             return (datetime.utcnow() + krconfig.timezone)
             
     def force_full_text(self, url):
@@ -636,7 +633,7 @@ class feedDownloader(threading.Thread):
     def parse_summary(self, summary, ref):
         """处理文章内容，去除多余标签并处理图片地址"""
 
-        soup = BeautifulSoup(summary)
+        soup = BeautifulSoup(summary, "html.parser")
 
         for span in list(soup.findAll(attrs = { "style" : "display: none;" })):
             span.extract()
@@ -652,11 +649,11 @@ class feedDownloader(threading.Thread):
         images = []
         for img in list(soup.findAll('img')):
             if (krconfig.max_image_per_article >= 0  and img_count >= krconfig.max_image_per_article) \
-                or img.has_key('src') is False :
+                or ('src' in img) is False :
                 img.extract()
             else:
                 try:
-                    if img['src'].encode('utf-8').lower().endswith(('jpg', 'jpeg', 'gif', 'png', 'bmp')):
+                    if img['src'].lower().endswith(('jpg', 'jpeg', 'gif', 'png', 'bmp')):
                         localimage, fullname = self.parse_image(img['src'])
                         # 确定结尾为图片后缀，防止下载非图片文件（如用于访问分析的假图片）
                         if os.path.isfile(fullname) is False:
@@ -672,11 +669,11 @@ class feedDownloader(threading.Thread):
                             img.extract()
                     else:
                         img.extract()
-                except Exception, e:
+                except Exception as e:
                     logging.info("error: %s" % e)
                     img.extract()
 
-        return soup.renderContents('utf-8'), images
+        return soup.encode_contents(), images
 
     def parse_image(self, url, filename = None):
         """处理img标签的src并映射到本地文件"""
@@ -730,11 +727,11 @@ class ImageDownloader(threading.Thread):
                       'User-Agent':'Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.6) Gecko/20091201 Firefox/3.5.6',
                       'Referer':i['referer']
                     }
-            req = urllib2.Request(
-                    url = i['url'].encode('utf-8'),
+            req = urllib.request.Request(
+                    url = i['url'],
                     headers = header
                     )
-            opener = urllib2.build_opener()
+            opener = urllib.request.build_opener()
             response = opener.open(req, timeout = 30)
             with open(i['filename'], 'wb') as img:
                 img.write(response.read())
@@ -745,15 +742,15 @@ class ImageDownloader(threading.Thread):
                     new_img.save(i['filename'])
                 except:
                     pass
-            logging.info("download: {}".format(i['url'].encode('utf-8')))
-        except urllib2.HTTPError as http_err:
+            logging.info("download: {}".format(i['url']))
+        except urllib.error.HTTPError as http_err:
             if retires > 0:
                 return self.getimage(i, retires - 1)
-            logging.info("HttpError: {},{}".format(http_err, i['url'].encode('utf-8')))
-        except Exception, e:
+            logging.info("HttpError: {},{}".format(http_err, i['url']))
+        except Exception as e:
             if retires > 0:
                 return self.getimage(i, retires - 1)
-            logging.error("Failed: {}".format(e, i['url'].encode('utf-8')))
+            logging.error("Failed: {}".format(e, i['url']))
 
 class KindleReader(object):
     """core of KindleReader"""
@@ -780,7 +777,7 @@ class KindleReader(object):
         msg = MIMEMultipart()
         msg['from'] = krconfig.mail_from
         msg['to'] = krconfig.mail_to
-        msg['subject'] = 'Convert'
+        msg['subject'] = 'reader'
     
         htmlText = 'kindle reader delivery.'
         msg.preamble = htmlText
@@ -790,7 +787,7 @@ class KindleReader(object):
     
         att = MIMEText(data, 'base64', 'utf-8')
         att["Content-Type"] = 'application/octet-stream'
-        att["Content-Disposition"] = 'attachment; filename="kindle-reader-%s.mobi"' % (datetime.utcnow() + krconfig.timezone).strftime('%Y%m%d-%H%M%S')
+        att["Content-Disposition"] = 'attachment; filename="reader-%s.mobi"' % (datetime.utcnow() + krconfig.timezone).strftime('%Y%m%d-%H%M%S')
         msg.attach(att)
 
         try:
@@ -804,17 +801,18 @@ class KindleReader(object):
 
             if krconfig.mail_username and krconfig.mail_password:
                 mail.login(krconfig.mail_username, krconfig.mail_password)
-
+            print("start sending mail")
             mail.sendmail(msg['from'], msg['to'], msg.as_string())
             mail.close()
-        except Exception, e:
+            print("sent close")
+        except Exception as e:
             logging.error("fail:%s" % e)
         
     def make_mobi(self, user, feeds, format = 'book'):
         """make a mobi file using kindlegen"""
         
         logging.info("generate .mobi file start... ")
-        
+        nowDate = (datetime.utcnow() + krconfig.timezone).strftime('%Y%m%d')
         data_dir = os.path.join(krconfig.work_dir, 'data')
         if not os.path.exists(data_dir):
             os.makedirs(data_dir)
@@ -822,9 +820,9 @@ class KindleReader(object):
             if tpl is 'book.html':
                 continue
                 
-            t = template.Template(TEMPLATES[tpl])
+            t = template.Template(template_string=TEMPLATES[tpl],autoescape=None)
             content = t.generate(
-                user = user,
+                user = user+nowDate,
                 feeds = feeds,
                 uuid = uuid.uuid1(),
                 format = format,
@@ -847,11 +845,11 @@ class KindleReader(object):
         if krconfig.kindlestrip == 1:
             # 调用kindlestrip处理mobi
             try:
-                data_file = file(mobi8_file, 'rb').read()
-                strippedFile = SectionStripper(data_file)
-                file(mobi6_file, 'wb').write(strippedFile.getResult())
+                data_file = open(mobi8_file, 'rb').read()
+                stripped_file = SectionStripper(data_file)
+                open(mobi6_file, 'wb').write(stripped_file.getResult())
                 mobi_file = mobi6_file
-            except Exception, e:
+            except Exception as e:
                 mobi_file = mobi8_file
                 logging.error("Error: %s" % e)
         else:
@@ -907,8 +905,8 @@ class KindleReader(object):
 
 if __name__ == '__main__':
     
-    logging.basicConfig(level = logging.INFO, format = '%(asctime)s:%(msecs)03d %(levelname)-8s %(message)s',
-        datefmt = '%m-%d %H:%M')
+    logging.basicConfig(level = logging.INFO, format = '%(asctime)s:%(msecs)03d %(filename)s %(funcName)s %(lineno)s %(levelname)-8s %(message)s',
+        datefmt = '%m-%d %H:%M', filename ='./loggmsg.log')
     
     try:
         work_dir = os.path.abspath(os.path.dirname(sys.argv[0]))
@@ -926,12 +924,15 @@ if __name__ == '__main__':
         
     try:
         kr = KindleReader(krconfig = krconfig)
-        kr.main()
-    except Exception, e:
+        #kr.main()
+        with open("./data/KindleReader-20170419-225412.mobi", 'rb') as fp:
+            kr.sendmail(fp.read())
+
+    except Exception as e:
         logging.info("Error: %s " % e)
 
     logging.info("used time {}s".format(time.time() - st))
     logging.info("done.")
         
     if not krconfig.auto_exit:
-        raw_input("Press any key to exit...")
+        input("Press any key to exit...")

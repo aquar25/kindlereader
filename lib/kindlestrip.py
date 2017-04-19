@@ -100,10 +100,10 @@ class SectionStripper:
         try:
             if exth_flag & 0x40:
                 exth = mobiheader[16 + mobi_length:]
-                if (len(exth) >= 4) and (exth[:4] == 'EXTH'):
+                if (len(exth) >= 4) and (exth[:4] == b'EXTH'):
                     nitems, = struct.unpack('>I', exth[8:12])
                     pos = 12
-                    for i in xrange(nitems):
+                    for i in range(nitems):
                         type, size = struct.unpack('>II', exth[pos: pos + 8])
                         # print type, size
                         if type == 121:
@@ -120,7 +120,7 @@ class SectionStripper:
         return mobiheader
 
     def __init__(self, datain):
-        if datain[0x3C:0x3C+8] != 'BOOKMOBI':
+        if datain[0x3C:0x3C+8] != b'BOOKMOBI':
             raise StripException("invalid file format")
         self.num_sections, = struct.unpack('>H', datain[76:78])
         
@@ -132,15 +132,15 @@ class SectionStripper:
         if srcs_secnum == 0xffffffff or srcs_cnt == 0:
             raise StripException("File doesn't contain the sources section.")
 
-        print "Found SRCS section number %d, and count %d" % (srcs_secnum, srcs_cnt)
+        print("Found SRCS section number %d, and count %d" % (srcs_secnum, srcs_cnt))
         # find its offset and length
         next = srcs_secnum + srcs_cnt
         srcs_offset, flgval = struct.unpack_from('>2L', datain, 78+(srcs_secnum*8))
         next_offset, flgval = struct.unpack_from('>2L', datain, 78+(next*8))
         srcs_length = next_offset - srcs_offset
-        if datain[srcs_offset:srcs_offset+4] != 'SRCS':
+        if datain[srcs_offset:srcs_offset+4] != b'SRCS':
             raise StripException("SRCS section num does not point to SRCS.")
-        print "   beginning at offset %0x and ending at offset %0x" % (srcs_offset, srcs_length)
+        print("   beginning at offset %0x and ending at offset %0x" % (srcs_offset, srcs_length))
 
         # it appears bytes 68-71 always contain (2*num_sections) + 1
         # this is not documented anyplace at all but it appears to be some sort of next 
@@ -154,7 +154,7 @@ class SectionStripper:
         # we are going to remove srcs_cnt SRCS sections so the offset of every entry in the table
         # up to the srcs secnum must begin 8 bytes earlier per section removed (each table entry is 8 )
         delta = -8 * srcs_cnt
-        for i in xrange(srcs_secnum):
+        for i in range(srcs_secnum):
             offset, flgval = struct.unpack_from('>2L', datain, 78+(i*8))
             offset += delta
             self.data_file += struct.pack('>L',offset) + struct.pack('>L',flgval)
@@ -162,7 +162,7 @@ class SectionStripper:
         # for every record after the srcs_cnt SRCS records we must start it
         # earlier by 8*srcs_cnt + the length of the srcs sections themselves)
         delta = delta - srcs_length
-        for i in xrange(srcs_secnum+srcs_cnt,self.num_sections):
+        for i in range(srcs_secnum+srcs_cnt,self.num_sections):
             offset, flgval = struct.unpack_from('>2L', datain, 78+(i*8))
             offset += delta
             flgval = 2 * (i - srcs_cnt)
@@ -171,7 +171,7 @@ class SectionStripper:
         # now pad it out to begin right at the first offset
         # typically this is 2 bytes of nulls
         first_offset, flgval = struct.unpack_from('>2L', self.data_file, 78)
-        self.data_file += '\0' * (first_offset - len(self.data_file))
+        self.data_file += b'\0' * (first_offset - len(self.data_file))
 
         # now finally add on every thing up to the original src_offset
         self.data_file += datain[offset0: srcs_offset]
@@ -195,7 +195,7 @@ class SectionStripper:
         # if K8 mobi, handle metadata 121 in old mobiheader
         mobiheader = self.updateEXTH121(srcs_secnum, srcs_cnt, mobiheader)
         self.data_file = self.data_file[0:offset0] + mobiheader + self.data_file[offset1:]
-        print "done"
+        print("done")
 
     def getResult(self):
         return self.data_file
@@ -208,26 +208,26 @@ class SectionStripper:
 
 if __name__ == "__main__":
     sys.stdout=Unbuffered(sys.stdout)
-    print ('KindleStrip v%(__version__)s. '
-       'Written 2010-2012 by Paul Durrant and Kevin Hendricks.' % globals())
+    print(('KindleStrip v%(__version__)s. '
+       'Written 2010-2012 by Paul Durrant and Kevin Hendricks.' % globals()))
     if len(sys.argv)<3 or len(sys.argv)>4:
-        print "Strips the Sources record from Mobipocket ebooks"
-        print "For ebooks generated using KindleGen 1.1 and later that add the source"
-        print "Usage:"
-        print "    %s <infile> <outfile> <strippeddatafile>" % sys.argv[0]
-        print "<strippeddatafile> is optional."
+        print("Strips the Sources record from Mobipocket ebooks")
+        print("For ebooks generated using KindleGen 1.1 and later that add the source")
+        print("Usage:")
+        print("    %s <infile> <outfile> <strippeddatafile>" % sys.argv[0])
+        print("<strippeddatafile> is optional.")
         sys.exit(1)
     else:
         infile = sys.argv[1]
         outfile = sys.argv[2]
-        data_file = file(infile, 'rb').read()
+        data_file = open(infile, 'rb').read()
         try:
             strippedFile = SectionStripper(data_file)
-            file(outfile, 'wb').write(strippedFile.getResult())
-            print "Header Bytes: " + binascii.b2a_hex(strippedFile.getHeader())
+            open(outfile, 'wb').write(strippedFile.getResult())
+            print("Header Bytes: " + binascii.b2a_hex(strippedFile.getHeader()))
             if len(sys.argv)==4:
-                file(sys.argv[3], 'wb').write(strippedFile.getStrippedData())
-        except StripException, e:
-            print "Error: %s" % e
+                open(sys.argv[3], 'wb').write(strippedFile.getStrippedData())
+        except StripException as e:
+            print("Error: %s" % e)
             sys.exit(1)
     sys.exit(0)
