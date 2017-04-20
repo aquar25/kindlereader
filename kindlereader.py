@@ -649,7 +649,7 @@ class feedDownloader(threading.Thread):
         images = []
         for img in list(soup.findAll('img')):
             if (krconfig.max_image_per_article >= 0  and img_count >= krconfig.max_image_per_article) \
-                or ('src' in img) is False :
+                or ('src' not in img.attrs):
                 img.extract()
             else:
                 try:
@@ -677,8 +677,7 @@ class feedDownloader(threading.Thread):
 
     def parse_image(self, url, filename = None):
         """处理img标签的src并映射到本地文件"""
-        url = escape.utf8(url)
-        image_guid = hashlib.sha1(url).hexdigest()
+        image_guid = hashlib.sha1(url.encode('utf-8')).hexdigest()
 
         x = url.split('.')
         ext = 'jpg'
@@ -695,7 +694,7 @@ class feedDownloader(threading.Thread):
                 ext = 'jpg'
 
         y = url.split('/')
-        h = hashlib.sha1(str(y[2])).hexdigest()
+        h = hashlib.sha1((y[2]).encode('utf-8')).hexdigest()
 
         hash_dir = os.path.join(h[0:1], h[1:2])
         filename = image_guid + '.' + ext
@@ -924,10 +923,7 @@ if __name__ == '__main__':
         
     try:
         kr = KindleReader(krconfig = krconfig)
-        #kr.main()
-        with open("./data/KindleReader-20170419-225412.mobi", 'rb') as fp:
-            kr.sendmail(fp.read())
-
+        kr.main()
     except Exception as e:
         logging.info("Error: %s " % e)
 
